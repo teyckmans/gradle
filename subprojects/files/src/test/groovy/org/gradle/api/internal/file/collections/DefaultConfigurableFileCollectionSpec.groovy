@@ -26,6 +26,7 @@ import org.gradle.util.UsesNativeServices
 
 import java.util.concurrent.Callable
 
+// TODO won't pass, is invoked more times in this experiment
 @UsesNativeServices
 class DefaultConfigurableFileCollectionSpec extends Specification {
 
