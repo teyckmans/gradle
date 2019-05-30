@@ -30,7 +30,7 @@ import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.startsWith;
 import static org.junit.Assert.assertThat;
 
-public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResult implements ExecutionFailure {
+public class OutputScrapingExecutionFailure extends DelegatingExecutionResult implements ExecutionFailure {
     private static final Pattern FAILURE_PATTERN = Pattern.compile("FAILURE: (.+)");
     private static final Pattern CAUSE_PATTERN = Pattern.compile("(?m)(^\\s*> )");
     private static final Pattern DESCRIPTION_PATTERN = Pattern.compile("(?ms)^\\* What went wrong:$(.+?)^\\* Try:$");
@@ -43,7 +43,8 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
     private final String resolution;
     // with normalized line endings
     private final List<String> causes = new ArrayList<String>();
-    private final LogContent mainContent;
+    private final OutputScrapingExecutionResult result;
+    private final LogContent failureContent;
 
     static boolean hasFailure(String error) {
         return FAILURE_PATTERN.matcher(error).find();
@@ -57,19 +58,15 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
      * @return A {@link OutputScrapingExecutionResult} for a successful build, or a {@link OutputScrapingExecutionFailure} for a failed build.
      */
     public static OutputScrapingExecutionFailure from(String output, String error) {
-        return new OutputScrapingExecutionFailure(output, error, true);
-    }
-
-    protected OutputScrapingExecutionFailure(String output, String error, boolean includeBuildSrc) {
-        super(LogContent.of(output), LogContent.of(error), includeBuildSrc);
-
-        LogContent withoutDebug = LogContent.of(output).ansiCharsToPlainText().removeDebugPrefix();
+        LogContent outputContent = LogContent.of(output);
+        LogContent errorContent = LogContent.of(error);
 
         // Find failure section
+        LogContent withoutDebug = outputContent.ansiCharsToPlainText().removeDebugPrefix();
         Pair<LogContent, LogContent> match = withoutDebug.splitOnFirstMatchingLine(FAILURE_PATTERN);
         if (match == null) {
             // Not present in output, check error output.
-            match = LogContent.of(error).ansiCharsToPlainText().removeDebugPrefix().splitOnFirstMatchingLine(FAILURE_PATTERN);
+            match = errorContent.ansiCharsToPlainText().removeDebugPrefix().splitOnFirstMatchingLine(FAILURE_PATTERN);
             if (match != null) {
                 match = Pair.of(withoutDebug, match.getRight());
             } else {
@@ -83,7 +80,15 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
         }
 
         LogContent failureContent = match.getRight();
-        this.mainContent = match.getLeft();
+        LogContent mainContent = match.getLeft();
+
+        return new OutputScrapingExecutionFailure(new OutputScrapingExecutionResult(outputContent, errorContent, mainContent, true), failureContent);
+    }
+
+    protected OutputScrapingExecutionFailure(OutputScrapingExecutionResult result, LogContent failureContent) {
+        super(result);
+        this.result = result;
+        this.failureContent = failureContent;
 
         String failureText = failureContent.withNormalizedEol();
 
@@ -118,12 +123,8 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
 
     @Override
     public ExecutionFailure getIgnoreBuildSrc() {
-        return new OutputScrapingExecutionFailure(getOutput(), getError(), false);
-    }
-
-    @Override
-    public LogContent getMainContent() {
-        return mainContent;
+        // It would be better to not reparse the failure content here (in the constructor)
+        return new OutputScrapingExecutionFailure(result.getIgnoreBuildSrc(), failureContent);
     }
 
     private Problem extract(String problem) {
@@ -195,7 +196,7 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
                 return this;
             }
         }
-        failureOnUnexpectedOutput(String.format("No matching cause found in %s", causes));
+        result.failureOnUnexpectedOutput(String.format("No matching cause found in %s", causes));
         return this;
     }
 
@@ -210,7 +211,7 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
         Matcher<String> matcher = containsString(description);
         for (String cause : causes) {
             if (matcher.matches(cause)) {
-                failureOnUnexpectedOutput(String.format("Expected no failure with description '%s', found: %s", description, cause));
+                result.failureOnUnexpectedOutput(String.format("Expected no failure with description '%s', found: %s", description, cause));
             }
         }
         return this;
@@ -235,7 +236,7 @@ public class OutputScrapingExecutionFailure extends OutputScrapingExecutionResul
                 return this;
             }
         }
-        failureOnUnexpectedOutput(String.format("No matching failure description found in %s", descriptions));
+        result.failureOnUnexpectedOutput(String.format("No matching failure description found in %s", descriptions));
         return this;
     }
 

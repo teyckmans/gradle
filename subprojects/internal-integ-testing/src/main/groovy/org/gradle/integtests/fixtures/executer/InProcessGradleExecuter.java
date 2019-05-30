@@ -179,8 +179,8 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         if (result.getFailure() == null) {
             throw new AssertionError("expected build to fail but it did not.");
         }
-        return assertResult(new InProcessExecutionFailure(buildListener.executedTasks, buildListener.skippedTasks,
-                OutputScrapingExecutionFailure.from(outputStream.toString(), errorStream.toString()), result.getFailure()));
+        OutputScrapingExecutionFailure outputFailure = OutputScrapingExecutionFailure.from(outputStream.toString(), errorStream.toString());
+        return assertResult(new InProcessExecutionFailure(new InProcessExecutionResult(buildListener.executedTasks, buildListener.skippedTasks, outputFailure), outputFailure, result.getFailure()));
     }
 
     private boolean isForkRequired() {
@@ -661,7 +661,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         }
     }
 
-    private static class InProcessExecutionFailure extends InProcessExecutionResult implements ExecutionFailure {
+    private static class InProcessExecutionFailure extends DelegatingExecutionResult implements ExecutionFailure {
         private static final Pattern LOCATION_PATTERN = Pattern.compile("(?m)^((\\w+ )+'.+') line: (\\d+)$");
         private final ExecutionFailure outputFailure;
         private final Throwable failure;
@@ -669,8 +669,8 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
         private final List<String> lineNumbers = new ArrayList<String>();
         private final List<String> descriptions = new ArrayList<String>();
 
-        InProcessExecutionFailure(List<String> tasks, Set<String> skippedTasks, ExecutionFailure outputFailure, Throwable failure) {
-            super(tasks, skippedTasks, outputFailure);
+        InProcessExecutionFailure(ExecutionResult result, ExecutionFailure outputFailure, Throwable failure) {
+            super(result);
             this.outputFailure = outputFailure;
             this.failure = failure;
 
@@ -697,9 +697,7 @@ public class InProcessGradleExecuter extends DaemonGradleExecuter {
 
         @Override
         public InProcessExecutionFailure getIgnoreBuildSrc() {
-            List<String> executedTasks = CollectionUtils.filter(this.executedTasks, NOT_BUILD_SRC_TASK);
-            Set<String> skippedTasks = CollectionUtils.filter(this.skippedTasks, NOT_BUILD_SRC_TASK);
-            return new InProcessExecutionFailure(executedTasks, skippedTasks, outputFailure.getIgnoreBuildSrc(), failure);
+            return new InProcessExecutionFailure(delegate.getIgnoreBuildSrc(), outputFailure.getIgnoreBuildSrc(), failure);
         }
 
         @Override

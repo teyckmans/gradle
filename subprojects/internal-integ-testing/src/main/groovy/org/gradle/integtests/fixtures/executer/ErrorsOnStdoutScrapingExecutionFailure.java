@@ -18,7 +18,7 @@ package org.gradle.integtests.fixtures.executer;
 
 import org.hamcrest.Matcher;
 
-public class ErrorsOnStdoutScrapingExecutionFailure extends ErrorsOnStdoutScrapingExecutionResult implements ExecutionFailure {
+public class ErrorsOnStdoutScrapingExecutionFailure extends DelegatingExecutionResult implements ExecutionFailure {
     private final ExecutionFailure delegate;
 
     public ErrorsOnStdoutScrapingExecutionFailure(ExecutionFailure delegate) {

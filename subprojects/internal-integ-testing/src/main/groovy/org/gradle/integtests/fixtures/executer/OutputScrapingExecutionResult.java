@@ -27,6 +27,7 @@ import org.gradle.launcher.daemon.server.health.LowHeapSpaceDaemonExpirationStra
 import org.gradle.util.GUtil;
 import org.junit.ComparisonFailure;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -49,10 +50,10 @@ public class OutputScrapingExecutionResult implements ExecutionResult {
 
     private final LogContent output;
     private final LogContent error;
-    private boolean includeBuildSrc;
     private final LogContent mainContent;
     private final LogContent postBuild;
     private final LogContent errorContent;
+    private final boolean includeBuildSrc;
     private GroupedOutputFixture groupedOutputFixture;
     private Set<String> tasks;
 
@@ -67,39 +68,46 @@ public class OutputScrapingExecutionResult implements ExecutionResult {
      * @param error The raw build stderr chars.
      * @return A {@link OutputScrapingExecutionResult} for a successful build, or a {@link OutputScrapingExecutionFailure} for a failed build.
      */
-    public static OutputScrapingExecutionResult from(String output, String error) {
+    public static ExecutionResult from(String output, String error) {
         // Should provide a Gradle version as parameter so this check can be more precise
         if (output.contains("BUILD FAILED") || output.contains("FAILURE: Build failed with an exception.") || error.contains("BUILD FAILED")) {
-            return new OutputScrapingExecutionFailure(output, error, true);
+            return OutputScrapingExecutionFailure.from(output, error);
         }
-        return new OutputScrapingExecutionResult(LogContent.of(output), LogContent.of(error), true);
+        return new OutputScrapingExecutionResult(LogContent.of(output), LogContent.of(error),  null,true);
     }
 
     /**
      * @param output The build stdout content.
      * @param error The build stderr content. Must have normalized line endings.
      */
-    protected OutputScrapingExecutionResult(LogContent output, LogContent error, boolean includeBuildSrc) {
+    protected OutputScrapingExecutionResult(LogContent output, LogContent error, @Nullable LogContent mainContent, boolean includeBuildSrc) {
         this.output = output;
         this.error = error;
         this.includeBuildSrc = includeBuildSrc;
 
         // Split out up the output into main content and post build content
         LogContent filteredOutput = this.output.ansiCharsToPlainText().removeDebugPrefix();
+        LogContent candidateMainContent = null;
         Pair<LogContent, LogContent> match = filteredOutput.splitOnFirstMatchingLine(BUILD_RESULT_PATTERN);
         if (match == null) {
-            this.mainContent = filteredOutput;
+            candidateMainContent = filteredOutput;
             this.postBuild = LogContent.empty();
         } else {
-            this.mainContent = match.getLeft();
+            candidateMainContent = match.getLeft();
             this.postBuild = match.getRight().drop(1);
+        }
+        if (mainContent != null) {
+            this.mainContent = mainContent;
+        } else {
+            this.mainContent = candidateMainContent;
         }
         this.errorContent = error.ansiCharsToPlainText();
     }
 
     @Override
-    public ExecutionResult getIgnoreBuildSrc() {
-        return new OutputScrapingExecutionResult(output, error, false);
+    public OutputScrapingExecutionResult getIgnoreBuildSrc() {
+        // It would be better to not reparse the content again (in the constructor)
+        return new OutputScrapingExecutionResult(output, error, mainContent, false);
     }
 
     @Override
